@@ -1,79 +1,102 @@
 """
-MITRE ATLAS Context Builder
+mitre_context.py
+
+MITRE ATLAS Context Builder.
+
+Detects AI/ML-specific threats from a user requirement and builds a
+formatted security context string to inject into the LLM prompt.
+
+Public API:
+    detect_ai_threats(requirement: str) -> list[str]
+    build_mitre_context(requirement: str) -> str
 """
 
-MITRE_RULES = {
-    "chatbot": {
-        "title": "Prompt Injection",
-        "guidelines": [
-            "Treat all user prompts as untrusted input.",
-            "Never execute arbitrary instructions from users.",
-            "Validate and sanitize prompt content."
-        ]
-    },
+from src.mitre_atlas import MITRE_ATTACKS
 
-    "llm": {
-        "title": "Model Abuse",
-        "guidelines": [
-            "Limit model capabilities.",
-            "Protect system prompts.",
-            "Restrict sensitive operations."
-        ]
-    },
 
-    "ai": {
-        "title": "AI Security",
-        "guidelines": [
-            "Protect against prompt injection.",
-            "Avoid exposing sensitive information.",
-            "Validate generated outputs."
-        ]
-    }
-}
-def build_mitre_context(requirement: str) -> str:
+# ------------------------------------------------------------------
+# Threat Detection
+# ------------------------------------------------------------------
 
-    requirement = requirement.lower()
+def detect_ai_threats(requirement: str) -> list[str]:
+    """
+    Detect relevant MITRE ATLAS threats from a plain-English requirement.
 
-    context = []
+    Args:
+        requirement: The user's software requirement.
 
-    for keyword, info in MITRE_RULES.items():
+    Returns:
+        A list of matched ATLAS technique names.
+    """
 
-        if keyword in requirement:
+    requirement_lower = requirement.lower()
 
-            context.append(f"## {info['title']}")
-
-            for rule in info["guidelines"]:
-
-                context.append(f"- {rule}")
-
-    return "\n".join(context)
-import json
-from pathlib import Path
-
-# Locate attacks.json
-BASE_DIR = Path(__file__).resolve().parent.parent
-ATTACKS_FILE = BASE_DIR / "knowledge_base" / "mitre" / "attacks.json"
-
-# Load the MITRE rules
-with open(ATTACKS_FILE, "r", encoding="utf-8") as f:
-    MITRE_ATTACKS = json.load(f)
-def build_mitre_context(requirement: str) -> str:
-    requirement = requirement.lower()
-
-    context = []
+    matched = []
+    seen_ids = set()
 
     for attack in MITRE_ATTACKS:
+        if attack["id"] in seen_ids:
+            continue
 
         keywords = attack.get("keywords", [])
 
-        if any(keyword.lower() in requirement for keyword in keywords):
+        if any(keyword.lower() in requirement_lower for keyword in keywords):
+            matched.append(attack["name"])
+            seen_ids.add(attack["id"])
 
-            context.append(f"## {attack['name']}")
-            context.append(f"MITRE Technique: {attack['id']}")
+    return matched
 
-            for mitigation in attack["mitigation"]:
-                context.append(f"- {mitigation}")
 
-            context.append("")
+# ------------------------------------------------------------------
+# Context Builder
+# ------------------------------------------------------------------
 
-    return "\n".join(context)
+def build_mitre_context(requirement: str) -> str:
+    """
+    Build a formatted MITRE ATLAS security context from a requirement.
+
+    Args:
+        requirement: User's software requirement.
+
+    Returns:
+        A formatted string containing ATLAS mitigations to inject
+        into the LLM security prompt. Returns an empty string if
+        no threats are detected.
+    """
+
+    requirement_lower = requirement.lower()
+
+    context = []
+    seen_ids = set()
+
+    for attack in MITRE_ATTACKS:
+        if attack["id"] in seen_ids:
+            continue
+
+        keywords = attack.get("keywords", [])
+
+        if not any(keyword.lower() in requirement_lower for keyword in keywords):
+            continue
+
+        seen_ids.add(attack["id"])
+
+        context.append(f"## {attack['name']}")
+        context.append(f"MITRE ATLAS Technique: {attack['id']} | Tactic: {attack['tactic']}")
+        context.append("")
+
+        for mitigation in attack["mitigation"]:
+            context.append(f"- {mitigation}")
+
+        context.append("")
+
+    if not context:
+        return ""
+
+    header = [
+        "### MITRE ATLAS – AI/ML Threat Mitigations",
+        "",
+        "Apply the following AI-specific security measures:",
+        ""
+    ]
+
+    return "\n".join(header + context)

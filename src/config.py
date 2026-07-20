@@ -17,13 +17,13 @@ load_dotenv()
 # Read configuration values
 # --------------------------------------------------
 
-# Gemini API Key
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+# Groq API Key
+GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
-# Gemini model name
-GEMINI_MODEL: str = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-2.0-flash"
+# Groq model name
+GROQ_MODEL: str = os.getenv(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
 )
 
 # Maximum generate → scan → fix iterations
@@ -34,8 +34,8 @@ MAX_ITERATIONS: int = int(
 # --------------------------------------------------
 # Warn the user if API key is missing
 # --------------------------------------------------
-if not GEMINI_API_KEY:
+if not GROQ_API_KEY:
     print(
-        "[WARNING] GEMINI_API_KEY is missing. "
+        "[WARNING] GROQ_API_KEY is missing. "
         "Please add it to your .env file."
     )

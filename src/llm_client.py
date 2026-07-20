@@ -1,7 +1,7 @@
 """
 llm_client.py
 
-Gemini client responsible for:
+Groq client responsible for:
 
 1. Generating secure code from natural language requirements.
 2. Fixing vulnerabilities detected by security scanners.
@@ -14,7 +14,7 @@ Requirement
 Security Context
       |
       v
-Gemini Secure Code Generator
+Groq Secure Code Generator
       |
       v
 Generated Code
@@ -23,30 +23,52 @@ Generated Code
 Scanner Findings
       |
       v
-Gemini Security Fix Agent
+Groq Security Fix Agent
       |
       v
 Fixed Code
 """
 
 import json
+import random
 import re
 import time
 
-from google import genai
+from groq import Groq
 
-from src.config import GEMINI_API_KEY, GEMINI_MODEL
+from src.config import GROQ_API_KEY, GROQ_MODEL
 
 
 # ==========================================================
-# Gemini Client
+# Model Fallback Chain
+# ==========================================================
+# If the primary model hits quota, the client automatically
+# retries with the next model in this list.
+MODEL_FALLBACK_CHAIN = [
+    GROQ_MODEL,                 # from .env (default: llama-3.3-70b-versatile)
+    "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-20b",
+]
+
+# Deduplicate while preserving order (in case .env model is already in list)
+_seen = set()
+_MODEL_CHAIN: list[str] = []
+for _m in MODEL_FALLBACK_CHAIN:
+    if _m not in _seen:
+        _seen.add(_m)
+        _MODEL_CHAIN.append(_m)
+
+
+# ==========================================================
+# Groq Client
 # ==========================================================
 
 client = None
 
-if GEMINI_API_KEY:
-    client = genai.Client(
-        api_key=GEMINI_API_KEY
+if GROQ_API_KEY:
+    client = Groq(
+        api_key=GROQ_API_KEY
     )
 
 
@@ -247,8 +269,8 @@ def _check_client():
 
     if client is None:
         raise RuntimeError(
-            "Gemini API key missing. "
-            "Add GEMINI_API_KEY to .env"
+            "Groq API key missing. "
+            "Add GROQ_API_KEY to .env"
         )
 
 
@@ -286,54 +308,110 @@ def _extract_code_block(text: str) -> str:
 
 
 # ==========================================================
-# Gemini API Call Wrapper
+# Groq API Call Wrapper
 # ==========================================================
 
-def _call_gemini(
+def _call_groq(
     system_prompt: str,
-    user_content: str
+    user_content: str,
+    max_retries: int = 3,
 ) -> str:
+    """
+    Call the Groq API with exponential-backoff retry and model fallback.
+
+    Retry strategy:
+      - On quota / rate-limit errors (HTTP 429 / RESOURCE_EXHAUSTED):
+          1. Wait with exponential backoff + jitter.
+          2. After all retries on the current model are exhausted,
+             fall back to the next model in _MODEL_CHAIN.
+      - On any other error: raise immediately.
+
+    Args:
+        system_prompt: System instruction for the model.
+        user_content:  User message / requirement.
+        max_retries:   Retry attempts per model before falling back.
+
+    Returns:
+        Model response text.
+    """
 
     _check_client()
 
-    try:
+    last_error: Exception | None = None
 
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=user_content,
-            config={
-                "system_instruction": system_prompt,
-                "max_output_tokens": 5000,
-                "temperature": 0.2
-            }
-        )
+    for model in _MODEL_CHAIN:
 
-        return response.text
+        for attempt in range(1, max_retries + 1):
 
+            try:
+                print(f"  [Groq] Using model: {model} (attempt {attempt}/{max_retries})")
 
-    except Exception as error:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    max_tokens=8192,
+                    temperature=0.2,
+                )
 
-        error_message = str(error)
+                content = response.choices[0].message.content
+                if isinstance(content, list):
+                    return "\n".join(
+                        part.get("text", "")
+                        if isinstance(part, dict)
+                        else str(part)
+                        for part in content
+                    ).strip()
 
+                return (content or "").strip()
 
-        # Better quota handling
+            except Exception as error:
 
-        if "429" in error_message or "RESOURCE_EXHAUSTED" in error_message:
+                error_message = str(error)
+                last_error = error
 
-            raise RuntimeError(
-                """
-Gemini API quota exceeded.
+                is_quota_error = (
+                    "429" in error_message
+                    or "RESOURCE_EXHAUSTED" in error_message
+                    or "quota" in error_message.lower()
+                    or "rate" in error_message.lower()
+                )
 
-Possible fixes:
-1. Wait for quota reset.
-2. Enable billing.
-3. Use another Gemini project/API key.
-4. Try another available model.
-"""
-            )
+                if not is_quota_error:
+                    # Non-quota error — fail immediately
+                    raise error
 
+                if attempt < max_retries:
+                    # Exponential backoff with jitter: 2^attempt * (0.8–1.2)
+                    wait = (2 ** attempt) * random.uniform(0.8, 1.2)
+                    print(
+                        f"  [Groq] Quota limit on {model}. "
+                        f"Retrying in {wait:.1f}s "
+                        f"(attempt {attempt}/{max_retries})..."
+                    )
+                    time.sleep(wait)
 
-        raise error
+                else:
+                    print(
+                        f"  [Groq] All {max_retries} retries exhausted on {model}. "
+                        "Trying next model in fallback chain..."
+                    )
+
+    # Every model in the chain failed
+    raise RuntimeError(
+        "\n"
+        "Groq API quota exceeded on ALL available models.\n"
+        "\n"
+        "Possible fixes:\n"
+        "  1. Wait a few minutes for the per-minute quota to reset.\n"
+        "  2. Check your Groq dashboard rate limits and billing settings.\n"
+        "  3. Add a different GROQ_API_KEY to your .env file.\n"
+        "  4. Set GROQ_MODEL=llama-3.1-8b-instant in .env for a faster fallback.\n"
+        "\n"
+        f"Last error: {last_error}"
+    )
 
 
 
@@ -367,7 +445,7 @@ def generate_code(
     )
 
 
-    response = _call_gemini(
+    response = _call_groq(
         system_prompt,
         requirement
     )
@@ -409,7 +487,7 @@ def fix_code(
     )
 
 
-    response = _call_gemini(
+    response = _call_groq(
         system_prompt,
         user_content
     )
