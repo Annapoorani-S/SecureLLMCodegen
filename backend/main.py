@@ -1,133 +1,79 @@
-"""
-main.py
+"""FastAPI application for the AISAF secure code-generation pipeline."""
 
-AISAF – AI Secure Architecture Framework
-Entry point for the secure code generation pipeline.
+from __future__ import annotations
 
-Usage:
-    # Interactive mode (will prompt for requirement):
-    python main.py
+import uuid
+from pathlib import Path
 
-    # Pass requirement directly as argument:
-    python main.py --requirement "Build a Flask JWT login API with PostgreSQL"
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-    # Specify output directory:
-    python main.py --requirement "..." --output my_project/
-
-    # Preview security context only (no code generation):
-    python main.py --requirement "..." --dry-run
-"""
-
-import argparse
-import sys
-
-from src.pipeline import run_pipeline, build_combined_context
+from src.pipeline import build_combined_context, run_pipeline
 
 
-# ------------------------------------------------------------------
-# CLI Argument Parser
-# ------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = BASE_DIR / "output"
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="aisaf",
-        description=(
-            "AISAF – AI Secure Architecture Framework\n"
-            "Generates secure, production-ready code with OWASP + MITRE ATLAS guidance."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter
+app = FastAPI(
+    title="AISAF API",
+    version="1.0.0",
+    description="Security-aware AI code generation using OWASP and MITRE ATLAS guidance.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
+
+
+class RequirementRequest(BaseModel):
+    requirement: str = Field(min_length=3, max_length=10_000)
+
+
+class AnalysisResponse(BaseModel):
+    owasp_domains: list[str]
+    mitre_threats: list[str]
+    security_context: str
+
+
+class GenerationResponse(AnalysisResponse):
+    files: dict[str, str]
+    saved_paths: list[str]
+
+
+@app.get("/api/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "aisaf-api"}
+
+
+@app.post("/api/analyze", response_model=AnalysisResponse)
+def analyze_requirement(payload: RequirementRequest) -> AnalysisResponse:
+    context, owasp_domains, mitre_threats = build_combined_context(payload.requirement)
+    return AnalysisResponse(
+        owasp_domains=owasp_domains,
+        mitre_threats=mitre_threats,
+        security_context=context,
     )
 
-    parser.add_argument(
-        "--requirement", "-r",
-        type=str,
-        default=None,
-        help="Natural language software requirement."
-    )
 
-    parser.add_argument(
-        "--output", "-o",
-        type=str,
-        default="output",
-        help="Directory to save generated files (default: output/)."
-    )
-
-    parser.add_argument(
-        "--dry-run", "-d",
-        action="store_true",
-        help="Print the security context only - do not call Groq or save files."
-    )
-
-    return parser.parse_args()
-
-
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
-
-def main() -> None:
-    args = parse_args()
-
-    # ── Get requirement ───────────────────────────────────────────
-    requirement = args.requirement
-
-    if not requirement:
-        print("\n" + "=" * 60)
-        print("  AISAF – AI Secure Architecture Framework")
-        print("  Powered by OWASP Top 10 + MITRE ATLAS")
-        print("=" * 60)
-        print()
-        print("Enter your software requirement (press Enter twice when done):")
-        print()
-
-        lines = []
-        try:
-            while True:
-                line = input()
-                if line == "" and lines and lines[-1] == "":
-                    break
-                lines.append(line)
-        except (EOFError, KeyboardInterrupt):
-            print("\n[INFO] Cancelled.")
-            sys.exit(0)
-
-        requirement = "\n".join(lines).strip()
-
-    if not requirement:
-        print("[ERROR] No requirement provided. Exiting.")
-        sys.exit(1)
-
-    # ── Dry run: just show security context ───────────────────────
-    if args.dry_run:
-        print("\n" + "=" * 60)
-        print("  DRY RUN – Security Context Preview")
-        print("=" * 60)
-
-        combined_context, owasp_domains, mitre_threats = build_combined_context(requirement)
-
-        print(f"\nOWASP Domains   : {', '.join(owasp_domains)}")
-        print(f"MITRE Threats   : {', '.join(mitre_threats) if mitre_threats else 'None detected'}")
-        print("\n--- Combined Security Context ---\n")
-        print(combined_context)
-        return
-
-    # ── Full pipeline ─────────────────────────────────────────────
+@app.post("/api/generate", response_model=GenerationResponse)
+def generate_project(payload: RequirementRequest) -> GenerationResponse:
+    request_output_dir = OUTPUT_DIR / uuid.uuid4().hex
     try:
-        result = run_pipeline(
-            requirement=requirement,
-            output_dir=args.output
-        )
-
-        print(f"\nSummary:")
-        print(f"  OWASP domains : {', '.join(result['owasp_domains'])}")
-        print(f"  MITRE threats : {', '.join(result['mitre_threats']) if result['mitre_threats'] else 'None'}")
-        print(f"  Files saved   : {len(result['saved_paths'])}")
-        print(f"  Output folder : {args.output}/\n")
-
+        result = run_pipeline(payload.requirement, output_dir=str(request_output_dir))
     except RuntimeError as exc:
-        print(f"\n[ERROR] {exc}")
-        sys.exit(1)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Code generation failed.") from exc
 
-
-if __name__ == "__main__":
-    main()
+    return GenerationResponse(
+        owasp_domains=result["owasp_domains"],
+        mitre_threats=result["mitre_threats"],
+        security_context=result["security_context"],
+        files=result["files"],
+        saved_paths=result["saved_paths"],
+    )
