@@ -1,232 +1,725 @@
 """
-pipeline.py
+AISAF Pipeline
 
-AISAF Unified Security Pipeline.
+AI Secure Architecture Framework
 
-Orchestrates the full flow:
+Complete Flow:
 
-    User Requirement
-          |
-          v
-    Security Domain Detection (OWASP)
-          |
-          v
-    AI Threat Detection (MITRE ATLAS)
-          |
-          v
-    Context Merging
-          |
-          v
-    Groq Secure Code Generation
-          |
-          v
-    File Parsing & Output Saving
-
-Public API:
-    run_pipeline(requirement, output_dir) -> dict
+Requirement
+        |
+        v
+Technology Classification
+        |
+        v
+OWASP Security Context
+        |
+        v
+MITRE ATLAS Threat Context
+        |
+        v
+Promptfoo LLM Security Testing
+        |
+        v
+Gemini Secure Code Generation
+        |
+        v
+Parse Generated Files
+        |
+        v
+Save Project
+        |
+        v
+Bandit + Semgrep Scan
+        |
+        v
+Gemini Fix Agent
+        |
+        v
+Re-scan
+        |
+        v
+Secure Output
 """
 
+
 import os
-import re
+import json
+from datetime import datetime
 from pathlib import Path
 
-from src.owasp_context import detect_security_domains, build_security_context
-from src.mitre_context import detect_ai_threats, build_mitre_context
-from src.llm_client import generate_code
+
+from src.config import MAX_ITERATIONS
 
 
-# ------------------------------------------------------------------
-# Context Builder
-# ------------------------------------------------------------------
-
-def build_combined_context(requirement: str) -> tuple[str, list[str], list[str]]:
-    """
-    Build a combined OWASP + MITRE ATLAS security context.
-
-    Args:
-        requirement: User's software requirement.
-
-    Returns:
-        Tuple of (combined_context_str, owasp_domains, mitre_threats)
-    """
-
-    # ── OWASP ─────────────────────────────────────────────────────
-    owasp_domains = detect_security_domains(requirement)
-    owasp_context = build_security_context(requirement)
-
-    # ── MITRE ATLAS ────────────────────────────────────────────────
-    mitre_threats = detect_ai_threats(requirement)
-    mitre_context = build_mitre_context(requirement)
-
-    # ── Merge ──────────────────────────────────────────────────────
-    parts = [owasp_context]
-
-    if mitre_context:
-        parts.append(mitre_context)
-
-    combined = "\n\n".join(parts)
-
-    return combined, owasp_domains, mitre_threats
+from src.tech_classifier import (
+    classify_technology
+)
 
 
-# ------------------------------------------------------------------
-# File Parser
-# ------------------------------------------------------------------
+from src.owasp_context import (
+    detect_security_domains,
+    build_security_context
+)
 
-def parse_generated_files(raw_output: str) -> dict[str, str]:
-    """
-    Parse the LLM response into individual files.
 
-    The LLM is instructed to return files in this format:
+from src.mitre_context import (
+    detect_ai_threats,
+    build_mitre_context
+)
 
-        === FILE: path/to/file.py ===
-        <file content>
 
-        === FILE: another/file.js ===
-        <file content>
+from src.prompt_security import (
+    run_promptfoo
+)
 
-    Args:
-        raw_output: Raw text returned by the LLM.
 
-    Returns:
-        Dict mapping file path → file content.
-    """
+from src.llm_client import (
+    generate_code,
+    fix_vulnerable_code
+)
+
+
+from src.scanner import (
+    SecurityScanner
+)
+
+
+from src.security_score import (
+    calculate_security_score
+)
+
+
+from src.report_generator import (
+    generate_report
+)
+
+
+
+OUTPUT_DIR = Path(
+    "output"
+)
+
+
+
+REPORT_DIR = Path(
+    "reports"
+)
+
+
+
+REPORT_DIR.mkdir(
+    exist_ok=True
+)
+
+
+
+# ==========================================================
+# Build AI Security Context
+# ==========================================================
+
+
+def build_combined_context(requirement):
+
+
+    technology = classify_technology(
+        requirement
+    )
+
+
+    owasp_domains = detect_security_domains(
+        requirement
+    )
+
+
+    mitre_threats = detect_ai_threats(
+        requirement
+    )
+
+
+    security_context = build_security_context(
+        requirement
+    )
+
+
+    mitre_context = build_mitre_context(
+        requirement
+    )
+
+
+    return {
+
+
+        "technology":
+            technology,
+
+
+        "owasp_domains":
+            owasp_domains,
+
+
+        "mitre_threats":
+            mitre_threats,
+
+
+        "security_context":
+            security_context,
+
+
+        "mitre_context":
+            mitre_context
+
+    }
+
+
+
+# ==========================================================
+# Parse Gemini Generated Files
+# ==========================================================
+
+
+def parse_generated_files(response):
+
 
     files = {}
 
-    # Split on the file header markers
-    pattern = r"===\s*FILE:\s*(.+?)\s*==="
-    parts = re.split(pattern, raw_output)
 
-    # parts = [preamble, filename1, content1, filename2, content2, ...]
-    it = iter(parts[1:])  # skip the preamble
+    try:
 
-    for filename, content in zip(it, it):
-        filename = filename.strip()
-        content = content.strip()
 
-        # Strip any leading/trailing markdown fences from content
-        content = re.sub(r"^```[\w+-]*\n?", "", content)
-        content = re.sub(r"\n?```$", "", content)
-        content = content.strip()
+        data = json.loads(
+            response
+        )
 
-        if filename and content:
-            files[filename] = content
+
+        files = data.get(
+            "files",
+            {}
+        )
+
+
+    except Exception:
+
+
+        print(
+            "JSON parsing failed"
+        )
+
+
+        files = {
+
+            "app.py":
+                response
+
+        }
+
 
     return files
 
 
-# ------------------------------------------------------------------
-# Output Saver
-# ------------------------------------------------------------------
 
-def save_files(files: dict[str, str], output_dir: str) -> list[str]:
-    """
-    Save generated files to the output directory.
 
-    Args:
-        files: Dict of filename → content.
-        output_dir: Root directory to save files into.
+# ==========================================================
+# Save Generated Project
+# ==========================================================
 
-    Returns:
-        List of absolute paths that were saved.
-    """
 
-    saved = []
-    output_path = Path(output_dir)
+def save_files(files):
 
-    for filename, content in files.items():
-        file_path = output_path / filename
-        file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_path.write_text(content, encoding="utf-8")
-        saved.append(str(file_path))
+    saved=[]
+
+
+    for filename,content in files.items():
+
+
+        file_path = (
+            OUTPUT_DIR /
+            filename
+        )
+
+
+        file_path.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+
+        with open(
+            file_path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+
+            f.write(
+                content
+            )
+
+
+        saved.append(
+            str(file_path)
+        )
+
+
+        print(
+            f"✓ {file_path}"
+        )
+
 
     return saved
 
 
-# ------------------------------------------------------------------
-# Main Pipeline Entry Point
-# ------------------------------------------------------------------
 
-def run_pipeline(
-    requirement: str,
-    output_dir: str = "output"
-) -> dict:
-    """
-    Run the full AISAF secure code generation pipeline.
 
-    Steps:
-        1. Detect OWASP security domains.
-        2. Detect MITRE ATLAS AI threats.
-        3. Build combined security context.
-        4. Generate secure code via Groq.
-        5. Parse output into individual files.
-        6. Save files to output_dir.
+# ==========================================================
+# Fix Vulnerable Files
+# ==========================================================
 
-    Args:
-        requirement: User's natural language software requirement.
-        output_dir:  Directory where generated files will be saved.
-                     Defaults to 'output/'.
 
-    Returns:
-        Dict with keys:
-            owasp_domains   - list of detected OWASP domains
-            mitre_threats   - list of detected MITRE ATLAS threats
-            security_context - combined security context string
-            raw_output      - raw Groq response
-            files           - dict of filename → content
-            saved_paths     - list of saved file paths
-    """
+def remediate(findings):
 
-    print("\n" + "=" * 60)
-    print("  AISAF – AI Secure Architecture Framework")
-    print("=" * 60)
 
-    # ── Step 1 & 2: Detect threats ────────────────────────────────
-    print("\n[1/4] Analysing security requirements...")
+    fixed_files=[]
 
-    combined_context, owasp_domains, mitre_threats = build_combined_context(requirement)
 
-    print(f"\n  OWASP Domains Detected   : {', '.join(owasp_domains) if owasp_domains else 'None'}")
-    print(f"  MITRE ATLAS Threats Detected: {', '.join(mitre_threats) if mitre_threats else 'None'}")
+    for issue in findings:
 
-    # ── Step 3: Generate code ─────────────────────────────────────
-    print("\n[2/4] Generating secure code via Groq...")
 
-    raw_output = generate_code(requirement, combined_context)
+        file_path = Path(
+            issue["file"]
+        )
 
-    # ── Step 4: Parse files ───────────────────────────────────────
-    print("\n[3/4] Parsing generated files...")
 
-    files = parse_generated_files(raw_output)
+        if not file_path.exists():
 
-    if not files:
-        # Fallback: treat the entire output as a single file
-        print("  [WARNING] Could not parse file blocks — saving as single file.")
-        files = {"generated_code.txt": raw_output}
+            continue
 
-    print(f"  Files generated: {len(files)}")
-    for name in files:
-        print(f"    - {name}")
 
-    # ── Step 5: Save files ────────────────────────────────────────
-    print(f"\n[4/4] Saving files to '{output_dir}/'...")
 
-    saved_paths = save_files(files, output_dir)
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8"
+        ) as f:
 
-    for path in saved_paths:
-        print(f"  ✓ {path}")
 
-    print("\n" + "=" * 60)
-    print("  Code generation complete!")
-    print("=" * 60 + "\n")
+            code=f.read()
 
-    return {
-        "owasp_domains": owasp_domains,
-        "mitre_threats": mitre_threats,
-        "security_context": combined_context,
-        "raw_output": raw_output,
-        "files": files,
-        "saved_paths": saved_paths
+
+
+        fixed_code = fix_vulnerable_code(
+            code,
+            issue
+        )
+
+
+
+        with open(
+            file_path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+
+            f.write(
+                fixed_code
+            )
+
+
+        fixed_files.append(
+            str(file_path)
+        )
+
+
+        print(
+            f"✓ Fixed: {file_path}"
+        )
+
+
+    return fixed_files
+
+
+
+
+# ==========================================================
+# MAIN PIPELINE
+# ==========================================================
+
+
+def run_pipeline(requirement):
+
+
+    print(
+        "\n" +
+        "="*60
+    )
+
+
+    print(
+        " AISAF - AI Secure Architecture Framework"
+    )
+
+
+    print(
+        "="*60
+    )
+
+
+
+    # ------------------------------------------------------
+    # STEP 1
+    # ------------------------------------------------------
+
+
+    print(
+        "\n[1/4] Analysing security requirements..."
+    )
+
+
+
+    context = build_combined_context(
+        requirement
+    )
+
+
+
+    print(
+        "\nTechnology Stack Detected:"
+    )
+
+
+    for k,v in context["technology"].items():
+
+        print(
+            f"  {k:15}: {v}"
+        )
+
+
+
+    print(
+        "\nOWASP Domains Detected:"
+    )
+
+    print(
+        context["owasp_domains"]
+    )
+
+
+    print(
+        "\nMITRE ATLAS Threats Detected:"
+    )
+
+    print(
+        context["mitre_threats"]
+    )
+
+
+
+
+    # ------------------------------------------------------
+    # Promptfoo
+    # ------------------------------------------------------
+
+
+    print(
+        "\n[LLM SECURITY EVALUATION]"
+    )
+
+
+    promptfoo_report = run_promptfoo(
+        requirement
+    )
+
+
+
+    print(
+        "Promptfoo:",
+        promptfoo_report.get(
+            "status"
+        )
+    )
+
+
+
+
+    # ------------------------------------------------------
+    # STEP 2
+    # ------------------------------------------------------
+
+
+    print(
+        "\n[2/4] Generating secure code via Gemini..."
+    )
+
+
+    response = generate_code(
+
+        requirement,
+
+        context
+
+    )
+
+
+
+    if not response:
+
+
+        print(
+            "[ERROR] Gemini returned no code"
+        )
+
+
+        return
+
+
+
+
+    files = parse_generated_files(
+        response
+    )
+
+
+    print(
+        "\nFiles generated:",
+        len(files)
+    )
+
+
+
+    saved_files = save_files(
+        files
+    )
+
+
+
+    print(
+        "\nCode generation complete!"
+    )
+
+
+
+
+    # ------------------------------------------------------
+    # STEP 3
+    # ------------------------------------------------------
+
+
+    print(
+        "\nAISAF SECURITY VALIDATION LOOP"
+    )
+
+
+    scanner = SecurityScanner()
+
+
+
+    initial_report=None
+
+
+    final_report=None
+
+
+
+    for iteration in range(
+        1,
+        MAX_ITERATIONS+1
+    ):
+
+
+        print(
+            f"\n===== SECURITY ITERATION {iteration} ====="
+        )
+
+
+        report = scanner.scan(
+            OUTPUT_DIR
+        )
+
+
+
+        if iteration == 1:
+
+            initial_report = report
+
+
+
+        score = calculate_security_score(
+            report
+        )
+
+
+
+        print(
+            "\nCurrent Security Score:",
+            score,
+            "/100"
+        )
+
+
+
+        findings = report["findings"]
+
+
+
+        if not findings:
+
+
+            print(
+                "✓ No vulnerabilities detected"
+            )
+
+            final_report=report
+
+            break
+
+
+
+
+        print(
+            "\nVulnerabilities:"
+        )
+
+
+        for issue in findings:
+
+            print(issue)
+
+
+
+        print(
+            "\nGemini Fix Agent running..."
+        )
+
+
+        remediate(
+            findings
+        )
+
+
+
+        final_report=report
+
+
+
+
+
+    # ------------------------------------------------------
+    # STEP 4 REPORT
+    # ------------------------------------------------------
+
+
+    final_score = calculate_security_score(
+        final_report
+    )
+
+
+    initial_score = calculate_security_score(
+        initial_report
+    )
+
+
+
+    report_data={
+
+
+        "framework":
+            "AISAF",
+
+
+        "timestamp":
+            str(datetime.now()),
+
+
+        "promptfoo":
+            promptfoo_report.get(
+                "status"
+            ),
+
+
+        "iterations":
+            iteration,
+
+
+        "initial_security_score":
+            initial_score,
+
+
+        "final_security_score":
+            final_score,
+
+
+        "status":
+            "SECURE"
+            if final_score == 100
+            else
+            "REQUIRES REVIEW"
+
     }
+
+
+
+    generate_report(
+        report_data
+    )
+
+
+
+    print(
+        "\nAISAF SECURITY REPORT"
+    )
+
+    print(
+        "="*60
+    )
+
+
+    print(
+        json.dumps(
+            report_data,
+            indent=4
+        )
+    )
+
+
+
+    return report_data
+
+
+
+
+
+# ==========================================================
+# TEST
+# ==========================================================
+
+
+if __name__=="__main__":
+
+
+    requirement="""
+
+    Build a secure banking REST API.
+
+    Technology:
+    Java Spring Boot
+
+    Database:
+    PostgreSQL
+
+    Features:
+
+    - JWT Authentication
+    - User management
+    - Transactions
+    - Role based authorization
+
+    Deploy using Docker.
+
+    """
+
+
+
+    run_pipeline(
+        requirement
+    )

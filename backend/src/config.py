@@ -1,41 +1,48 @@
 """
-Configuration module for Secure LLM Code Generator.
+Configuration module for AISAF.
 
-This module loads environment variables from a .env file
-and makes them available throughout the project.
+Loads environment variables from the .env file.
 """
 
 import os
 from dotenv import load_dotenv
 
 # --------------------------------------------------
-# Load variables from the .env file
+# Load environment variables
 # --------------------------------------------------
+
 load_dotenv()
 
 # --------------------------------------------------
-# Read configuration values
+# Gemini Configuration
 # --------------------------------------------------
 
-# Groq API Key
-GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
-# Groq model name
-GROQ_MODEL: str = os.getenv(
-    "GROQ_MODEL",
-    "llama-3.3-70b-versatile"
+GEMINI_MODEL: str = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
 )
 
-# Maximum generate → scan → fix iterations
+# --------------------------------------------------
+# Pipeline Configuration
+# --------------------------------------------------
+
 MAX_ITERATIONS: int = int(
     os.getenv("MAX_ITERATIONS", "3")
 )
 
+OUTPUT_DIR: str = os.getenv(
+    "OUTPUT_DIR",
+    "output"
+)
+
 # --------------------------------------------------
-# Warn the user if API key is missing
+# Validate Configuration
 # --------------------------------------------------
-if not GROQ_API_KEY:
+
+if not GEMINI_API_KEY:
     print(
-        "[WARNING] GROQ_API_KEY is missing. "
+        "[WARNING] GEMINI_API_KEY is missing. "
         "Please add it to your .env file."
     )
