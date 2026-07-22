@@ -3,7 +3,9 @@ AISAF Pipeline
 
 AI Secure Architecture Framework
 
-Complete Flow:
+Complete Secure Code Generation Pipeline
+
+Flow:
 
 Requirement
         |
@@ -17,35 +19,36 @@ OWASP Security Context
 MITRE ATLAS Threat Context
         |
         v
-Promptfoo LLM Security Testing
+Promptfoo LLM Evaluation
         |
         v
 Gemini Secure Code Generation
         |
         v
-Parse Generated Files
+Project Parsing
         |
         v
-Save Project
+Security Scanning
         |
         v
-Bandit + Semgrep Scan
+Automatic Remediation
         |
         v
-Gemini Fix Agent
-        |
-        v
-Re-scan
-        |
-        v
-Secure Output
+Security Report
 """
 
 
 import os
 import json
-from datetime import datetime
+import time
+
 from pathlib import Path
+from datetime import datetime
+
+
+# ==========================================================
+# Imports
+# ==========================================================
 
 
 from src.config import MAX_ITERATIONS
@@ -80,12 +83,14 @@ from src.llm_client import (
 
 
 from src.scanner import (
-    SecurityScanner
+    scan_project
 )
 
 
 from src.security_score import (
-    calculate_security_score
+    calculate_security_score,
+    security_status,
+    security_metrics
 )
 
 
@@ -95,16 +100,24 @@ from src.report_generator import (
 
 
 
+# ==========================================================
+# Directories
+# ==========================================================
+
+
 OUTPUT_DIR = Path(
     "output"
 )
-
 
 
 REPORT_DIR = Path(
     "reports"
 )
 
+
+OUTPUT_DIR.mkdir(
+    exist_ok=True
+)
 
 
 REPORT_DIR.mkdir(
@@ -114,7 +127,7 @@ REPORT_DIR.mkdir(
 
 
 # ==========================================================
-# Build AI Security Context
+# Build AISAF Security Context
 # ==========================================================
 
 
@@ -169,15 +182,109 @@ def build_combined_context(requirement):
             mitre_context
 
     }
+# ==========================================================
+# Gemini Code Generation
+# ==========================================================
+
+
+def generate_secure_project(
+        requirement,
+        context
+):
+
+    """
+    Generate secure project using Gemini.
+    """
+
+    print(
+        "\n[Gemini] Generating secure project..."
+    )
+
+
+    retries = 3
+
+
+    for attempt in range(
+        retries
+    ):
+
+        try:
+
+            response = generate_code(
+
+                requirement,
+
+                context
+
+            )
+
+
+            if response:
+
+                return response
+
+
+
+        except Exception as e:
+
+
+            error = str(e)
+
+
+            print(
+                "\n[Gemini Error]",
+                error
+            )
+
+
+            # Gemini quota / temporary errors
+
+            if (
+                "429" in error
+                or
+                "503" in error
+            ):
+
+                wait_time = (
+                    30 * (attempt + 1)
+                )
+
+
+                print(
+                    f"Retrying after {wait_time}s..."
+                )
+
+
+                time.sleep(
+                    wait_time
+                )
+
+
+            else:
+
+                break
+
+
+
+    print(
+        "\nGemini failed after retries."
+    )
+
+
+    return None
+
+
 
 
 
 # ==========================================================
-# Parse Gemini Generated Files
+# Parse Generated Files
 # ==========================================================
 
 
-def parse_generated_files(response):
+def parse_generated_files(
+        response
+):
 
 
     files = {}
@@ -197,15 +304,17 @@ def parse_generated_files(response):
         )
 
 
+
     except Exception:
 
 
         print(
-            "JSON parsing failed"
+            "JSON parsing failed."
         )
 
 
         files = {
+
 
             "app.py":
                 response
@@ -213,7 +322,9 @@ def parse_generated_files(response):
         }
 
 
+
     return files
+
 
 
 
@@ -223,13 +334,16 @@ def parse_generated_files(response):
 # ==========================================================
 
 
-def save_files(files):
+def save_files(
+        files
+):
 
 
-    saved=[]
+    saved_files = []
 
 
-    for filename,content in files.items():
+
+    for filename, content in files.items():
 
 
         file_path = (
@@ -238,109 +352,161 @@ def save_files(files):
         )
 
 
+
         file_path.parent.mkdir(
+
             parents=True,
+
             exist_ok=True
+
         )
 
 
+
         with open(
+
             file_path,
+
             "w",
+
             encoding="utf-8"
-        ) as f:
+
+        ) as file:
 
 
-            f.write(
+            file.write(
                 content
             )
 
 
-        saved.append(
+
+        saved_files.append(
             str(file_path)
         )
 
 
+
         print(
-            f"✓ {file_path}"
+            f"✓ Saved {file_path}"
         )
 
 
-    return saved
+
+    return saved_files
+
 
 
 
 
 # ==========================================================
-# Fix Vulnerable Files
+# Automatic Remediation
 # ==========================================================
 
 
-def remediate(findings):
+def remediate(
+        findings
+):
 
 
-    fixed_files=[]
+    fixed_files = []
+
 
 
     for issue in findings:
 
 
-        file_path = Path(
-            issue["file"]
+        file_name = issue.get(
+            "file"
         )
 
 
-        if not file_path.exists():
+        if not file_name:
 
             continue
 
 
 
+        file_path = Path(
+            file_name
+        )
+
+
+
+        if not file_path.exists():
+
+
+            continue
+
+
+
+
         with open(
+
             file_path,
+
             "r",
+
             encoding="utf-8"
-        ) as f:
+
+        ) as file:
 
 
-            code=f.read()
+            code = file.read()
+
+
+
+
+        print(
+
+            "\n[Gemini Fix Agent] Analysing vulnerability..."
+
+        )
 
 
 
         fixed_code = fix_vulnerable_code(
+
             code,
+
             issue
+
         )
 
 
 
-        with open(
-            file_path,
-            "w",
-            encoding="utf-8"
-        ) as f:
+        if fixed_code:
 
 
-            f.write(
-                fixed_code
+            with open(
+
+                file_path,
+
+                "w",
+
+                encoding="utf-8"
+
+            ) as file:
+
+
+                file.write(
+                    fixed_code
+                )
+
+
+
+            fixed_files.append(
+                str(file_path)
             )
 
 
-        fixed_files.append(
-            str(file_path)
-        )
 
+            print(
+                f"✓ Fixed: {file_path}"
+            )
 
-        print(
-            f"✓ Fixed: {file_path}"
-        )
 
 
     return fixed_files
-
-
-
-
 # ==========================================================
 # MAIN PIPELINE
 # ==========================================================
@@ -349,32 +515,25 @@ def remediate(findings):
 def run_pipeline(requirement):
 
 
-    print(
-        "\n" +
-        "="*60
-    )
-
+    print("\n" + "=" * 60)
 
     print(
         " AISAF - AI Secure Architecture Framework"
     )
 
-
-    print(
-        "="*60
-    )
+    print("=" * 60)
 
 
 
-    # ------------------------------------------------------
+    # ======================================================
     # STEP 1
-    # ------------------------------------------------------
+    # Requirement Analysis
+    # ======================================================
 
 
     print(
         "\n[1/4] Analysing security requirements..."
     )
-
 
 
     context = build_combined_context(
@@ -388,10 +547,10 @@ def run_pipeline(requirement):
     )
 
 
-    for k,v in context["technology"].items():
+    for key, value in context["technology"].items():
 
         print(
-            f"  {k:15}: {v}"
+            f"  {key:<15}: {value}"
         )
 
 
@@ -401,8 +560,11 @@ def run_pipeline(requirement):
     )
 
     print(
-        context["owasp_domains"]
+        ", ".join(
+            context["owasp_domains"]
+        )
     )
+
 
 
     print(
@@ -410,15 +572,16 @@ def run_pipeline(requirement):
     )
 
     print(
-        context["mitre_threats"]
+        ", ".join(
+            context["mitre_threats"]
+        )
     )
 
 
 
-
-    # ------------------------------------------------------
-    # Promptfoo
-    # ------------------------------------------------------
+    # ======================================================
+    # Promptfoo Security Evaluation
+    # ======================================================
 
 
     print(
@@ -426,25 +589,50 @@ def run_pipeline(requirement):
     )
 
 
-    promptfoo_report = run_promptfoo(
-        requirement
-    )
+    try:
 
 
-
-    print(
-        "Promptfoo:",
-        promptfoo_report.get(
-            "status"
+        promptfoo_report = run_promptfoo(
+            requirement
         )
-    )
+
+
+        print(
+            "Promptfoo Status:",
+            promptfoo_report.get(
+                "status"
+            )
+        )
+
+
+    except Exception as e:
+
+
+        print(
+            "Promptfoo Error:",
+            e
+        )
+
+
+        promptfoo_report = {
+
+
+            "status":
+            "FAILED",
+
+            "error":
+            str(e)
+
+        }
 
 
 
 
-    # ------------------------------------------------------
+
+    # ======================================================
     # STEP 2
-    # ------------------------------------------------------
+    # Secure Code Generation
+    # ======================================================
 
 
     print(
@@ -452,7 +640,8 @@ def run_pipeline(requirement):
     )
 
 
-    response = generate_code(
+
+    response = generate_secure_project(
 
         requirement,
 
@@ -466,11 +655,11 @@ def run_pipeline(requirement):
 
 
         print(
-            "[ERROR] Gemini returned no code"
+            "\n[ERROR] Gemini did not return code."
         )
 
 
-        return
+        return None
 
 
 
@@ -480,6 +669,7 @@ def run_pipeline(requirement):
     )
 
 
+
     print(
         "\nFiles generated:",
         len(files)
@@ -487,7 +677,7 @@ def run_pipeline(requirement):
 
 
 
-    saved_files = save_files(
+    save_files(
         files
     )
 
@@ -500,65 +690,127 @@ def run_pipeline(requirement):
 
 
 
-    # ------------------------------------------------------
+
+    # ======================================================
     # STEP 3
-    # ------------------------------------------------------
+    # Security Validation Loop
+    # ======================================================
 
 
     print(
-        "\nAISAF SECURITY VALIDATION LOOP"
+
+        "\n" +
+        "=" * 60
+
     )
 
 
-    scanner = SecurityScanner()
+    print(
+        " AISAF SECURITY VALIDATION LOOP"
+    )
+
+
+    print(
+        "=" * 60
+    )
 
 
 
-    initial_report=None
+    initial_report = None
+
+    final_report = None
 
 
-    final_report=None
+    initial_score = 0
+
+    final_score = 0
 
 
 
     for iteration in range(
+
         1,
-        MAX_ITERATIONS+1
+
+        MAX_ITERATIONS + 1
+
     ):
 
 
         print(
+
             f"\n===== SECURITY ITERATION {iteration} ====="
+
         )
 
 
-        report = scanner.scan(
-            OUTPUT_DIR
+
+        report = scan_project(
+
+            str(
+                OUTPUT_DIR
+            )
+
         )
 
 
 
         if iteration == 1:
 
+
             initial_report = report
 
 
 
+            initial_score = calculate_security_score(
+
+                report
+
+            )
+
+
+
         score = calculate_security_score(
+
             report
+
+        )
+
+
+
+        metrics = security_metrics(
+
+            report
+
         )
 
 
 
         print(
+
             "\nCurrent Security Score:",
             score,
             "/100"
+
         )
 
 
 
-        findings = report["findings"]
+        print(
+
+            "Security Status:",
+            metrics["status"]
+
+        )
+
+
+
+        findings = report.get(
+
+            "issues",
+
+            []
+
+        )
 
 
 
@@ -566,10 +818,15 @@ def run_pipeline(requirement):
 
 
             print(
+
                 "✓ No vulnerabilities detected"
+
             )
 
-            final_report=report
+
+            final_report = report
+
+            final_score = score
 
             break
 
@@ -577,127 +834,140 @@ def run_pipeline(requirement):
 
 
         print(
-            "\nVulnerabilities:"
+
+            "\nVulnerabilities Detected:"
+
         )
 
 
+
         for issue in findings:
+
 
             print(issue)
 
 
 
+
         print(
+
             "\nGemini Fix Agent running..."
+
         )
+
 
 
         remediate(
+
             findings
+
         )
 
 
 
-        final_report=report
+        final_report = report
+
+        final_score = score
+# ==========================================================
+# STEP 4
+# AISAF Report Generation
+# ==========================================================
+
+
+    if final_report is None:
+
+        final_report = scan_project(
+            str(OUTPUT_DIR)
+        )
+
+        final_score = calculate_security_score(
+            final_report
+        )
 
 
 
+    print(
 
+        "\nGenerating AISAF Security Report..."
 
-    # ------------------------------------------------------
-    # STEP 4 REPORT
-    # ------------------------------------------------------
-
-
-    final_score = calculate_security_score(
-        final_report
     )
 
 
-    initial_score = calculate_security_score(
-        initial_report
-    )
 
+    report = generate_report(
 
+        initial_report,
 
-    report_data={
+        final_report,
 
+        initial_score,
 
-        "framework":
-            "AISAF",
+        final_score,
 
+        iteration,
 
-        "timestamp":
-            str(datetime.now()),
+        technology=context["technology"],
 
+        owasp_domains=context["owasp_domains"],
 
-        "promptfoo":
-            promptfoo_report.get(
-                "status"
-            ),
+        mitre_threats=context["mitre_threats"]
 
-
-        "iterations":
-            iteration,
-
-
-        "initial_security_score":
-            initial_score,
-
-
-        "final_security_score":
-            final_score,
-
-
-        "status":
-            "SECURE"
-            if final_score == 100
-            else
-            "REQUIRES REVIEW"
-
-    }
-
-
-
-    generate_report(
-        report_data
     )
 
 
 
     print(
-        "\nAISAF SECURITY REPORT"
+
+        "\n" +
+        "=" * 60
+
     )
 
+
     print(
-        "="*60
+
+        " AISAF SECURITY REPORT"
+
     )
 
 
     print(
+
+        "=" * 60
+
+    )
+
+
+
+    print(
+
         json.dumps(
-            report_data,
+
+            report,
+
             indent=4
+
         )
+
     )
 
 
 
-    return report_data
+    return report
 
 
 
 
 
 # ==========================================================
-# TEST
+# TEST EXECUTION
 # ==========================================================
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
 
-    requirement="""
+    requirement = """
 
     Build a secure banking REST API.
 
@@ -714,12 +984,14 @@ if __name__=="__main__":
     - Transactions
     - Role based authorization
 
-    Deploy using Docker.
+    Deployment:
+    Docker
 
     """
 
 
-
     run_pipeline(
+
         requirement
+
     )

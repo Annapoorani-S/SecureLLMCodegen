@@ -1,377 +1,137 @@
 """
-AISAF Security Scanner
+scanner.py
 
-Integrates:
+AISAF Unified Security Scanner
 
+Combines:
 1. Promptfoo
 2. Bandit
 3. Semgrep
 
-Returns unified security findings.
+Returns one unified security report.
 """
 
-
-import json
-import subprocess
-from pathlib import Path
-
+from src.promptfoo_scanner import scan_promptfoo
+from src.bandit_scanner import run_bandit
+from src.semgrep_scanner import run_semgrep
 
 
 # ==========================================================
-# Promptfoo Scanner
+# Summary Generator
 # ==========================================================
 
-
-def run_promptfoo():
-
-    print("\n[Scanner] Running Promptfoo LLM Security Tests...")
-
-    try:
-
-        result = subprocess.run(
-            [
-                "promptfoo",
-                "eval",
-                "--output",
-                "reports/promptfoo_report.json"
-            ],
-            capture_output=True,
-            text=True
-        )
-
-
-        if result.returncode != 0:
-
-            return {
-
-                "tool": "Promptfoo",
-
-                "status": "FAILED",
-
-                "message": result.stderr
-
-            }
-
-
-        return {
-
-            "tool": "Promptfoo",
-
-            "status": "PASSED",
-
-            "message": "LLM security tests completed"
-
-        }
-
-
-    except Exception as e:
-
-        return {
-
-            "tool": "Promptfoo",
-
-            "status": "ERROR",
-
-            "message": str(e)
-
-        }
-
-
-
-
-# ==========================================================
-# Bandit Scanner
-# ==========================================================
-
-
-def run_bandit(project_path):
-
-
-    print("\n[Scanner] Running Bandit...")
-
-
-    try:
-
-
-        result = subprocess.run(
-
-            [
-                "python",
-                "-m",
-                "bandit",
-                "-r",
-                project_path,
-                "-f",
-                "json"
-            ],
-
-            capture_output=True,
-
-            text=True
-
-        )
-
-
-        if result.stdout:
-
-
-            data=json.loads(
-                result.stdout
-            )
-
-
-            findings=[]
-
-
-            for issue in data.get(
-                "results",
-                []
-            ):
-
-
-                findings.append({
-
-                    "tool":"Bandit",
-
-                    "severity":
-                    issue.get(
-                        "issue_severity"
-                    ),
-
-                    "file":
-                    issue.get(
-                        "filename"
-                    ),
-
-                    "line":
-                    issue.get(
-                        "line_number"
-                    ),
-
-                    "rule":
-                    issue.get(
-                        "test_id"
-                    ),
-
-                    "message":
-                    issue.get(
-                        "issue_text"
-                    )
-
-                })
-
-
-            return findings
-
-
-
-        return []
-
-
-
-    except Exception as e:
-
-
-        print(
-            "Bandit Error:",
-            e
-        )
-
-        return []
-
-
-
-
-# ==========================================================
-# Semgrep Scanner
-# ==========================================================
-
-
-def run_semgrep(project_path):
-
-
-    print(
-        "\n[Scanner] Running Semgrep..."
-    )
-
-
-    try:
-
-
-        result=subprocess.run(
-
-            [
-                "python",
-                "-m",
-                "semgrep",
-                "--config=auto",
-                project_path,
-                "--json"
-            ],
-
-            capture_output=True,
-
-            text=True
-
-        )
-
-
-
-        if result.stdout:
-
-
-            data=json.loads(
-                result.stdout
-            )
-
-
-            findings=[]
-
-
-            for issue in data.get(
-                "results",
-                []
-            ):
-
-
-                findings.append({
-
-                    "tool":"Semgrep",
-
-                    "severity":
-                    issue.get(
-                        "extra",
-                        {}
-                    ).get(
-                        "severity",
-                        "INFO"
-                    ),
-
-
-                    "file":
-                    issue.get(
-                        "path"
-                    ),
-
-
-                    "line":
-                    issue.get(
-                        "start",
-                        {}
-                    ).get(
-                        "line"
-                    ),
-
-
-                    "rule":
-                    issue.get(
-                        "check_id"
-                    ),
-
-
-                    "message":
-                    issue.get(
-                        "extra",
-                        {}
-                    ).get(
-                        "message"
-                    )
-
-                })
-
-
-            return findings
-
-
-
-        return []
-
-
-
-    except Exception as e:
-
-
-        print(
-            "Semgrep Error:",
-            e
-        )
-
-        return []
-
-
-
-
-# ==========================================================
-# Unified AISAF Scanner
-# ==========================================================
-
-
-def scan_project(project_path):
-
-
-    findings=[]
-
-
-    # Promptfoo
-
-    prompt_result = run_promptfoo()
-
-
-    if prompt_result["status"] != "PASSED":
-
-        findings.append(
-            prompt_result
-        )
-
-
-
-    # Code scanners
-
-    findings.extend(
-        run_bandit(
-            project_path
-        )
-    )
-
-
-    findings.extend(
-        run_semgrep(
-            project_path
-        )
-    )
-
-
-
-    return {
-
-
-        "total":
-        len(findings),
-
-
-        "issues":
-        findings
-
+def build_summary(findings):
+    """
+    Count vulnerabilities by severity.
+    """
+
+    summary = {
+        "total": len(findings),
+        "HIGH": 0,
+        "MEDIUM": 0,
+        "LOW": 0,
+        "INFO": 0,
     }
 
+    for issue in findings:
+
+        severity = str(
+            issue.get("severity", "INFO")
+        ).upper()
+
+        if severity not in summary:
+            severity = "INFO"
+
+        summary[severity] += 1
+
+    return summary
+
+
+# ==========================================================
+# Unified Scanner
+# ==========================================================
+
+def scan_project(project_path):
+    """
+    Run every scanner and merge findings.
+    """
+
+    print("\n" + "=" * 60)
+    print(" AISAF Unified Security Scanner")
+    print("=" * 60)
+
+    findings = []
+
+    # --------------------------------------------------
+    # Promptfoo
+    # --------------------------------------------------
+
+    try:
+
+        promptfoo_findings = scan_promptfoo()
+
+        findings.extend(promptfoo_findings)
+
+    except Exception as e:
+
+        print("[Promptfoo Error]", e)
+
+    # --------------------------------------------------
+    # Bandit
+    # --------------------------------------------------
+
+    try:
+
+        bandit_findings = run_bandit(project_path)
+
+        findings.extend(bandit_findings)
+
+    except Exception as e:
+
+        print("[Bandit Error]", e)
+
+    # --------------------------------------------------
+    # Semgrep
+    # --------------------------------------------------
+
+    try:
+
+        semgrep_findings = run_semgrep(project_path)
+
+        findings.extend(semgrep_findings)
+
+    except Exception as e:
+
+        print("[Semgrep Error]", e)
+
+    summary = build_summary(findings)
+
+    print("\nSecurity Summary")
+    print("-" * 40)
+
+    print(f"Total Findings : {summary['total']}")
+    print(f"HIGH           : {summary['HIGH']}")
+    print(f"MEDIUM         : {summary['MEDIUM']}")
+    print(f"LOW            : {summary['LOW']}")
+    print(f"INFO           : {summary['INFO']}")
+
+    return {
+        "total": summary["total"],
+        "issues": findings,
+        "summary": summary,
+    }
 
 
 # ==========================================================
 # Test
 # ==========================================================
 
+if __name__ == "__main__":
 
-if __name__=="__main__":
+    report = scan_project("output")
 
+    print("\n")
 
-    report=scan_project(
-        "../output"
-    )
+    for issue in report["issues"]:
 
-
-    print(
-        json.dumps(
-            report,
-            indent=4
-        )
-    )
+        print(issue)
