@@ -1,7 +1,7 @@
 {
     "framework": "AISAF",
     "version": "1.0",
-    "timestamp": "2026-07-22 22:17:18.385818",
+    "timestamp": "2026-07-23 10:36:43.462870",
     "iterations": 1,
     "initial_security_score": 100,
     "final_security_score": 100,
@@ -26,7 +26,6 @@
     ],
     "mitre_atlas": [
         "Model Theft / Extraction",
-        "LLM Plugin / Tool Abuse",
         "Valid Accounts Abuse",
         "Brute Force",
         "Exploit Public-Facing Application"
