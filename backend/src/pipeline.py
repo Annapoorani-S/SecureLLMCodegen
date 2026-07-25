@@ -210,13 +210,14 @@ def generate_secure_project(
 
         try:
 
-            response = generate_code(
-
-                requirement,
-
-                context
-
+            security_context = "\n\n".join(
+                part for part in (
+                    context.get("security_context", ""),
+                    context.get("mitre_context", ""),
+                ) if part
             )
+
+            response = generate_code(requirement, security_context)
 
 
             if response:
@@ -291,35 +292,14 @@ def parse_generated_files(
 
 
     try:
-
-
-        data = json.loads(
-            response
-        )
-
-
-        files = data.get(
-            "files",
-            {}
-        )
-
-
-
-    except Exception:
-
-
-        print(
-            "JSON parsing failed."
-        )
-
-
-        files = {
-
-
-            "app.py":
-                response
-
-        }
+        data = json.loads(response)
+        files = data.get("files", {})
+        if not isinstance(files, dict):
+            raise ValueError("Generated files must be an object")
+    except (json.JSONDecodeError, ValueError, TypeError):
+        # Preserve useful output even when a model does not honour the JSON
+        # contract; the UI can still show and export it for review.
+        files = {"generated_code.txt": response}
 
 
 
@@ -677,9 +657,7 @@ def run_pipeline(requirement):
 
 
 
-    save_files(
-        files
-    )
+    saved_paths = save_files(files)
 
 
 
@@ -952,6 +930,17 @@ def run_pipeline(requirement):
     )
 
 
+
+    report.update({
+        "technology": context["technology"],
+        "owasp_domains": context["owasp_domains"],
+        "mitre_threats": context["mitre_threats"],
+        "security_context": "\n\n".join(
+            part for part in (context["security_context"], context["mitre_context"]) if part
+        ),
+        "files": files,
+        "saved_paths": saved_paths,
+    })
 
     return report
 

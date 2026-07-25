@@ -54,12 +54,14 @@ class RequirementRequest(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
+    technology: dict[str, str | None]
     owasp_domains: list[str]
     mitre_threats: list[str]
     security_context: str
 
 
 class GenerationResponse(BaseModel):
+    technology: dict[str, str | None]
     owasp_domains: list[str]
     mitre_threats: list[str]
     security_context: str
@@ -82,7 +84,25 @@ def health():
 # Analyze Requirement
 # ==========================================================
 
-@app.post("/api/generate")
+@app.post("/api/analyze", response_model=AnalysisResponse)
+def analyze_requirement(payload: RequirementRequest):
+    """Return the controls AISAF will apply before code is generated."""
+    context = build_combined_context(payload.requirement)
+    combined_context = "\n\n".join(
+        part for part in (
+            context["security_context"],
+            context["mitre_context"],
+        ) if part
+    )
+
+    return {
+        "technology": context["technology"],
+        "owasp_domains": context["owasp_domains"],
+        "mitre_threats": context["mitre_threats"],
+        "security_context": combined_context,
+    }
+
+@app.post("/api/generate", response_model=GenerationResponse)
 def generate_project(payload: RequirementRequest):
 
     try:
