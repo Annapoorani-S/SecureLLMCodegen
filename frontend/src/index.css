@@ -1,16 +1,225 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Base ─────────────────────────────────────────────── */
 @layer base {
-  * { @apply border-white/10; }
-  body { @apply min-h-screen bg-ink font-sans text-slate-100 antialiased; }
-  button { @apply transition duration-200; }
+  * { @apply border-white/10; box-sizing: border-box; }
+
+  body {
+    @apply min-h-screen bg-ink font-sans text-slate-100 antialiased;
+    background: radial-gradient(circle at 10% 0%, rgba(75,178,123,.12) 0%, transparent 30%),
+                radial-gradient(circle at 90% 15%, rgba(198,244,107,.07) 0%, transparent 25%),
+                #07130f;
+  }
+
+  button { @apply transition-all duration-150; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply rounded-full bg-white/10; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-white/20; }
+
+  ::selection { background: rgba(140, 231, 179, 0.25); }
 }
 
+/* ─── Components ─────────────────────────────────────────── */
 @layer components {
-  .panel { @apply rounded-2xl border border-white/10 bg-surface/75 shadow-glow backdrop-blur; }
-  .tag { @apply inline-flex items-center rounded-full border border-mint/20 bg-mint/10 px-2.5 py-1 text-xs font-medium text-mint; }
+
+  /* Panels & Cards */
+  .panel {
+    @apply rounded-2xl border border-white/[.08] bg-surface/80 shadow-panel backdrop-blur-xl;
+  }
+  .panel-flat {
+    @apply rounded-xl border border-white/[.06] bg-surface/60;
+  }
+  .tag {
+    @apply inline-flex items-center rounded-full border border-mint/20 bg-mint/10 px-2.5 py-1 text-xs font-medium text-mint;
+  }
+  .tag-danger {
+    @apply inline-flex items-center rounded-full border border-red-400/20 bg-red-400/10 px-2.5 py-1 text-xs font-medium text-red-300;
+  }
+  .tag-warning {
+    @apply inline-flex items-center rounded-full border border-yellow-400/20 bg-yellow-400/10 px-2.5 py-1 text-xs font-medium text-yellow-300;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-mint px-4 py-2.5
+           text-sm font-semibold text-ink hover:bg-lime disabled:opacity-50
+           active:scale-[.98] transition-all duration-150;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-white/[.15]
+           px-4 py-2.5 text-sm font-medium text-slate-300
+           hover:border-mint/50 hover:text-mint disabled:opacity-50
+           active:scale-[.98] transition-all duration-150;
+  }
+
+  /* ── VS Code Explorer ──────────────────────────────── */
+
+  /* Outer IDE shell */
+  .vscode-shell {
+    @apply flex flex-col overflow-hidden rounded-2xl border border-white/[.08] shadow-panel;
+    background: #091511;
+    height: calc(100vh - 4rem);
+    min-height: 500px;
+    max-height: 900px;
+  }
+
+  /* Title bar */
+  .vscode-titlebar {
+    @apply flex items-center gap-2 px-4 py-2 border-b border-white/[.08];
+    background: #071210;
+    flex-shrink: 0;
+  }
+  .vscode-titlebar-dot {
+    @apply h-3 w-3 rounded-full;
+  }
+
+  /* Main body: sidebar + editor */
+  .vscode-body {
+    @apply flex flex-1 overflow-hidden;
+  }
+
+  /* Activity bar (leftmost strip) */
+  .vscode-activity {
+    @apply flex flex-col items-center gap-1 border-r border-white/[.08] py-3 px-1;
+    background: #071210;
+    width: 48px;
+    flex-shrink: 0;
+  }
+  .vscode-activity-btn {
+    @apply flex h-10 w-10 items-center justify-center rounded-lg text-slate-500
+           hover:bg-white/[.08] hover:text-slate-200 transition-all duration-150 cursor-pointer;
+  }
+  .vscode-activity-btn.active {
+    @apply text-mint border-l-2 border-mint rounded-none bg-white/5;
+  }
+
+  /* Sidebar (file explorer) */
+  .vscode-sidebar {
+    @apply flex flex-col border-r border-white/[.08] overflow-hidden;
+    background: #091511;
+    width: 240px;
+    flex-shrink: 0;
+  }
+  .vscode-sidebar-header {
+    @apply flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 border-b border-white/[.06];
+    flex-shrink: 0;
+  }
+  .vscode-sidebar-body {
+    @apply flex-1 overflow-y-auto;
+  }
+
+  /* File tree nodes */
+  .tree-node {
+    @apply flex w-full items-center gap-1.5 rounded px-2 py-[3px] text-left text-xs
+           text-slate-400 hover:bg-white/5 hover:text-slate-200 cursor-pointer
+           transition-colors duration-100 select-none;
+  }
+  .tree-node.active {
+    @apply bg-mint/[.12] text-mint;
+  }
+  .tree-node.folder {
+    @apply font-medium text-slate-300;
+  }
+
+  /* Editor area */
+  .vscode-editor {
+    @apply flex flex-1 flex-col overflow-hidden;
+    background: #0e1e19;
+  }
+
+  /* Tab bar */
+  .vscode-tabbar {
+    @apply flex items-end border-b border-white/[.08] overflow-x-auto;
+    background: #0b1814;
+    flex-shrink: 0;
+    min-height: 37px;
+  }
+  .vscode-tab {
+    @apply flex items-center gap-2 px-4 py-2 text-xs text-slate-500 border-r border-white/[.06]
+           hover:text-slate-300 cursor-pointer transition-colors duration-100 whitespace-nowrap flex-shrink-0;
+    background: #091511;
+  }
+  .vscode-tab.active {
+    @apply text-slate-100;
+    background: #0e1e19;
+    box-shadow: inset 0 1px 0 #8ce7b3;
+  }
+  .vscode-tab-close {
+    @apply ml-1 flex h-4 w-4 items-center justify-center rounded text-slate-600
+           hover:bg-white/10 hover:text-white transition-colors;
+  }
+
+  /* Breadcrumb */
+  .vscode-breadcrumb {
+    @apply flex items-center gap-1 px-4 py-1.5 text-xs text-slate-500 border-b border-white/[.06];
+    background: #0e1e19;
+    flex-shrink: 0;
+  }
+
+  /* Code viewer */
+  .vscode-code {
+    @apply flex-1 overflow-auto font-mono text-xs leading-[1.7];
+    background: #0e1e19;
+    tab-size: 2;
+  }
+  .code-line {
+    @apply flex;
+    min-width: max-content;
+  }
+  .code-line:hover { background: rgba(140,231,179,0.04); }
+  .code-gutter {
+    @apply select-none text-right pr-4 pl-4 text-slate-600;
+    min-width: 44px;
+    background: #0e1e19;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  .code-content {
+    @apply pr-8 pl-2 text-slate-300;
+    white-space: pre;
+  }
+
+  /* Status bar */
+  .vscode-statusbar {
+    @apply flex items-center justify-between px-4 text-xs text-green-300/70;
+    background: #063010;
+    height: 24px;
+    flex-shrink: 0;
+  }
+
+  /* Empty state */
+  .vscode-empty {
+    @apply flex flex-1 flex-col items-center justify-center gap-4 text-slate-600;
+  }
+
+  /* ── Syntax highlighting tokens ───────────────────── */
+  .tok-keyword   { color: #c678dd; }
+  .tok-string    { color: #98c379; }
+  .tok-comment   { color: #5c6370; font-style: italic; }
+  .tok-number    { color: #d19a66; }
+  .tok-function  { color: #61afef; }
+  .tok-class     { color: #e5c07b; }
+  .tok-operator  { color: #56b6c2; }
+  .tok-tag       { color: #e06c75; }
+  .tok-attr      { color: #d19a66; }
+  .tok-type      { color: #e5c07b; }
+  .tok-decorator { color: #61afef; }
+
+  /* ── Score gauge ─────────────────────────────────── */
+  .score-ring {
+    @apply relative flex items-center justify-center rounded-full;
+  }
+
+  /* ── Severity badges ──────────────────────────────── */
+  .sev-high   { @apply tag-danger; }
+  .sev-medium { @apply tag-warning; }
+  .sev-low    { @apply inline-flex items-center rounded-full border border-blue-400/20 bg-blue-400/10 px-2.5 py-1 text-xs font-medium text-blue-300; }
+  .sev-info   { @apply inline-flex items-center rounded-full border border-slate-400/20 bg-slate-400/10 px-2.5 py-1 text-xs font-medium text-slate-300; }
 }

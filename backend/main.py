@@ -18,8 +18,10 @@ from src.pipeline import (
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
+REPORTS_DIR = BASE_DIR / "reports"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
+REPORTS_DIR.mkdir(exist_ok=True)
 
 # ==========================================================
 # FastAPI
@@ -54,14 +56,12 @@ class RequirementRequest(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
-    technology: dict[str, str | None]
     owasp_domains: list[str]
     mitre_threats: list[str]
     security_context: str
 
 
 class GenerationResponse(BaseModel):
-    technology: dict[str, str | None]
     owasp_domains: list[str]
     mitre_threats: list[str]
     security_context: str
@@ -81,28 +81,10 @@ def health():
     }
 
 # ==========================================================
-# Analyze Requirement
+# Generate Project
 # ==========================================================
 
-@app.post("/api/analyze", response_model=AnalysisResponse)
-def analyze_requirement(payload: RequirementRequest):
-    """Return the controls AISAF will apply before code is generated."""
-    context = build_combined_context(payload.requirement)
-    combined_context = "\n\n".join(
-        part for part in (
-            context["security_context"],
-            context["mitre_context"],
-        ) if part
-    )
-
-    return {
-        "technology": context["technology"],
-        "owasp_domains": context["owasp_domains"],
-        "mitre_threats": context["mitre_threats"],
-        "security_context": combined_context,
-    }
-
-@app.post("/api/generate", response_model=GenerationResponse)
+@app.post("/api/generate")
 def generate_project(payload: RequirementRequest):
 
     try:
@@ -113,7 +95,104 @@ def generate_project(payload: RequirementRequest):
         raise HTTPException(
             status_code=500,
             detail=str(e)
-        )# ==========================================================
+        )
+
+# ==========================================================
+# Output Directory Tree
+# ==========================================================
+
+def _build_tree(path: Path, base: Path) -> dict:
+    """Recursively build a tree node for the given path."""
+    rel = path.relative_to(base)
+    node = {
+        "name": path.name,
+        "path": rel.as_posix(),
+        "type": "directory" if path.is_dir() else "file",
+    }
+    if path.is_dir():
+        children = []
+        for child in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+            children.append(_build_tree(child, base))
+        node["children"] = children
+    return node
+
+
+@app.get("/api/output/tree")
+def output_tree():
+    """Return the recursive directory tree of the output folder."""
+    if not OUTPUT_DIR.exists() or not any(OUTPUT_DIR.iterdir()):
+        return {"name": "output", "path": "", "type": "directory", "children": []}
+    return _build_tree(OUTPUT_DIR, OUTPUT_DIR)
+
+
+@app.get("/api/output/file")
+def output_file(path: str):
+    """Return the raw content of a file inside the output folder."""
+    # Sanitize: prevent path traversal
+    safe_path = OUTPUT_DIR / path
+    try:
+        safe_path = safe_path.resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path.")
+
+    if not str(safe_path).startswith(str(OUTPUT_DIR.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    if not safe_path.exists() or not safe_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    try:
+        content = safe_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"path": path, "content": content}
+
+
+# ==========================================================
+# Reports Directory
+# ==========================================================
+
+@app.get("/api/reports/list")
+def reports_list():
+    """Return a list of available reports."""
+    if not REPORTS_DIR.exists():
+        return []
+    
+    reports = []
+    for f in REPORTS_DIR.iterdir():
+        if f.is_file() and f.suffix in [".json", ".html", ".md"]:
+            reports.append({
+                "name": f.name,
+                "path": f.name,
+                "type": "file"
+            })
+    return sorted(reports, key=lambda x: x["name"])
+
+
+@app.get("/api/reports/file")
+def reports_file(filename: str):
+    """Return the raw content of a report."""
+    safe_path = REPORTS_DIR / filename
+    try:
+        safe_path = safe_path.resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path.")
+
+    if not str(safe_path).startswith(str(REPORTS_DIR.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    if not safe_path.exists() or not safe_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    try:
+        content = safe_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"path": filename, "content": content}
+
+# ==========================================================
 # Run Locally
 # ==========================================================
 

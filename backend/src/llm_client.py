@@ -26,10 +26,14 @@ GEMINI_API_KEY = os.getenv(
 )
 
 
-client = (
-    genai.Client(api_key=GEMINI_API_KEY)
-    if GEMINI_API_KEY
-    else None
+if not GEMINI_API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY not found in .env"
+    )
+
+
+client = genai.Client(
+    api_key=GEMINI_API_KEY
 )
 
 
@@ -42,11 +46,6 @@ MODEL = "gemini-2.5-flash"
 # ==================================================
 
 def call_gemini(prompt, retries=2):
-
-    if client is None:
-        raise ValueError(
-            "GEMINI_API_KEY not found. Add it to backend/.env before generating code."
-        )
 
     for attempt in range(retries + 1):
 
