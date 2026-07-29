@@ -959,6 +959,34 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState('checking') // 'ok' | 'error' | 'checking'
   const [refreshing, setRefreshing] = useState(false)
   const [viewMode, setViewMode] = useState('home') // 'home' | 'explorer'
+  const downloadProject = async () => {
+  try {
+    const response = await fetch(
+      "http://127.0.0.1:8000/api/export/project"
+    )
+
+    if (!response.ok) {
+      throw new Error("Export failed")
+    }
+
+    const blob = await response.blob()
+
+    const url = window.URL.createObjectURL(blob)
+
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "AISAF_generated_project.zip"
+
+    document.body.appendChild(a)
+    a.click()
+
+    a.remove()
+    window.URL.revokeObjectURL(url)
+
+  } catch (error) {
+    alert(error.message)
+  }
+}
 
   // Health check
   useEffect(() => {
@@ -1103,6 +1131,12 @@ export default function App() {
                   {loading === 'generate'
                     ? <><LoaderCircle className="animate-spin" size={16} /> Generating…</>
                     : <>Generate project <ArrowRight size={15} /></>}
+                </button>
+                <button
+                  onClick={downloadProject}
+                  className="btn-secondary"
+                >
+                  Export ZIP
                 </button>
               </div>
             </div>

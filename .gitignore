@@ -1,5 +1,18 @@
+# Python
 venv/
 __pycache__/
 *.pyc
 .env
+
+# Output
 output/
+
+# Node
+frontend/node_modules/
+
+# Frontend build
+frontend/dist/
+
+# Generated files
+backend/AISAF_generated_project.zip
+backend/reports/

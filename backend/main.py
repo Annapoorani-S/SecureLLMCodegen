@@ -10,6 +10,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import os
+import zipfile
+from fastapi.responses import FileResponse
 
 from src.pipeline import (
     build_combined_context,
@@ -205,4 +208,39 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8000,
         reload=True
+    )
+@app.get("/api/export/project")
+def export_project():
+
+    output_dir = "../output"
+    zip_name = "AISAF_generated_project.zip"
+
+    zip_path = zip_name
+
+    if not os.path.exists(output_dir):
+        raise HTTPException(
+            status_code=404,
+            detail="Output folder not found"
+        )
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+
+        for root, dirs, files in os.walk(output_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+
+                arcname = os.path.relpath(
+                    file_path,
+                    output_dir
+                )
+
+                zipf.write(
+                    file_path,
+                    arcname
+                )
+
+    return FileResponse(
+        path=zip_path,
+        filename="AISAF_generated_project.zip",
+        media_type="application/zip"
     )
