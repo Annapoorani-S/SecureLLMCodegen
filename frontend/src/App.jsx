@@ -7,6 +7,7 @@ import {
   BarChart2, Layers, Bug,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
+import Login from "./pages/Login";
 
 /* ─────────────────────────────────────────────────────────────
    API helpers
@@ -21,11 +22,19 @@ async function apiFetch(path, options = {}) {
 }
 
 function apiPost(path, body) {
+
+  const token = localStorage.getItem("token");
+
   return apiFetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+
     body: JSON.stringify(body),
-  })
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -953,6 +962,9 @@ const SAMPLE = 'Build a FastAPI service for a team task manager with JWT authent
 export default function App() {
   const [requirement, setRequirement] = useState(SAMPLE)
   const [report, setReport] = useState(null)
+  const [isLoggedIn, setIsLoggedIn] = useState(
+  !!localStorage.getItem("token")
+);
   const [filesDict, setFilesDict] = useState(null) // {path: content}
   const [loading, setLoading] = useState('')       // '' | 'generate'
   const [error, setError] = useState('')
@@ -1041,6 +1053,13 @@ export default function App() {
       setLoading('')
     }
   }
+  const handleLogout = () => {
+  localStorage.removeItem("token");
+  setIsLoggedIn(false);
+  };
+  if (!isLoggedIn) {
+  return <Login setIsLoggedIn={setIsLoggedIn} />
+}
 
   return (
     <main className={`min-h-screen ${viewMode === 'explorer' ? 'flex flex-col' : ''}`}>
@@ -1069,6 +1088,13 @@ export default function App() {
               }`} />
             {apiStatus === 'ok' ? 'Backend online' : apiStatus === 'error' ? 'Backend offline' : 'Connecting…'}
           </div>
+
+          <button
+              onClick={handleLogout}
+              className="btn-secondary"
+          >
+             Logout
+          </button>
         </div>
       </nav>
 

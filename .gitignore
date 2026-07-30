@@ -16,3 +16,10 @@ frontend/dist/
 # Generated files
 backend/AISAF_generated_project.zip
 backend/reports/
+venv/
+__pycache__/
+*.pyc
+backend/aisaf.db
+frontend/node_modules/
+frontend/dist/
+.env

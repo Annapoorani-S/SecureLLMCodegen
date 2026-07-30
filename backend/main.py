@@ -12,8 +12,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import os
 import zipfile
+from sqlalchemy.orm import Session
+from fastapi import Depends
+from auth import get_current_user
+from database import engine, SessionLocal
+from models import Base, User
+from schemas import (
+    UserRegister,
+    UserLogin,
+    Token,
+    CodeRequest
+)
+from auth import hash_password, verify_password, create_access_token
 from fastapi.responses import FileResponse
-
+from fastapi import HTTPException, Depends
 from src.pipeline import (
     build_combined_context,
     run_pipeline,
@@ -35,6 +47,7 @@ app = FastAPI(
     version="1.0.0",
     description="AI Secure Architecture Framework",
 )
+Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,7 +59,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 # ==========================================================
 # Models
 # ==========================================================
@@ -82,25 +100,84 @@ def health():
         "status": "ok",
         "service": "AISAF Backend"
     }
+@app.post("/api/register")
+def register(user: UserRegister, db: Session = Depends(get_db)):
 
+    existing_user = db.query(User).filter(User.email == user.email).first()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Email already registered"
+        )
+
+    new_user = User(
+        username=user.username,
+        email=user.email,
+        hashed_password=hash_password(user.password)
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return {
+        "message": "User registered successfully"
+    }
+
+@app.post("/api/login")
+def login(
+    user: UserLogin,
+    db: Session = Depends(get_db)
+):
+
+    db_user = db.query(User).filter(
+        User.username == user.username
+    ).first()
+
+    if not db_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    if not verify_password(
+        user.password,
+        db_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    access_token = create_access_token(
+        data={
+            "sub": db_user.username
+        }
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
 # ==========================================================
 # Generate Project
 # ==========================================================
 
 @app.post("/api/generate")
-def generate_project(payload: RequirementRequest):
-
+def generate(
+    req: CodeRequest,
+    username: str = Depends(get_current_user)
+):
     try:
-        report = run_pipeline(payload.requirement)
+        report = run_pipeline(req.requirement)
         return report
 
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=str(e)
-        )
-
-# ==========================================================
+        )# ==========================================================
 # Output Directory Tree
 # ==========================================================
 
